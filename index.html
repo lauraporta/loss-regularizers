@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D Loss and Regularizer Visualizer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #title {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        #controls {
+            margin-bottom: 20px;
+        }
+
+        label {
+            margin-right: 10px;
+        }
+
+        canvas {
+            width: 800px;
+            height: 600px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Title for the visualization -->
+    <div id="title">3D Visualization of Loss Functions and Regularizers</div>
+
+    <div id="controls">
+        <label for="loss-select">Choose a loss function:</label>
+        <select id="loss-select">
+            <option value="hinge">Hinge Loss</option>
+            <option value="log">Log Loss</option>
+            <option value="exp">Exponential Loss</option>
+            <option value="zero_one">Zero-One Loss</option>
+        </select>
+
+        <label for="regularizer-select">Choose a regularizer:</label>
+        <select id="regularizer-select">
+            <option value="none">No Regularizer</option>
+            <option value="l1">L1 Regularizer</option>
+            <option value="l2">L2 Regularizer</option>
+            <option value="lp">LP Regularizer (p=0.5)</option>
+        </select>
+    </div>
+
+    <div id="plot"></div>
+
+    <!-- Include Three.js and OrbitControls for 3D interaction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // Constants and scene setup
+        const gridSize = 100;
+        const zValues = Array.from({ length: gridSize }, (_, i) => -2 + (4 * i / (gridSize - 1)));
+        const wValues = Array.from({ length: gridSize }, (_, i) => -2 + (4 * i / (gridSize - 1)));
+
+        let scene, camera, renderer, surfaceMesh, controls, originPoint;
+
+        function init3D() {
+            // Set up Three.js scene
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, 800 / 600, 0.1, 1000);
+            camera.position.set(5, 5, 5); // Better position to view the surface from above
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(800, 600);
+            document.getElementById('plot').appendChild(renderer.domElement);
+
+            // Add light for better visibility
+            const ambientLight = new THREE.AmbientLight(0x404040, 2); // Soft light
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+            directionalLight.position.set(10, 10, 10).normalize();
+            scene.add(directionalLight);
+
+            // Add controls for rotating the plot freely
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+            // Add a marker at the origin (0, 0, 0)
+            const sphereGeometry = new THREE.SphereGeometry(0.1, 32, 32);
+            const sphereMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            originPoint = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            originPoint.position.set(0, 0, 0);
+            scene.add(originPoint);
+        }
+
+        function createSurfaceGeometry(zValues, wValues, lossSurface) {
+            // Create a plane geometry to hold the vertices for the surface
+            const geometry = new THREE.PlaneGeometry(4, 4, gridSize - 1, gridSize - 1);
+
+            // Update vertex positions to match the calculated surface
+            const positionAttr = geometry.attributes.position;
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const index = i * gridSize + j;
+                    // Correctly set the x, y, and z coordinates
+                    positionAttr.setXYZ(index, zValues[j], lossSurface[i][j], wValues[i]);
+                }
+            }
+
+            // Recalculate normals for proper shading
+            geometry.computeVertexNormals();
+
+            return geometry;
+        }
+
+        function updatePlot() {
+            // Remove existing mesh
+            if (surfaceMesh) scene.remove(surfaceMesh);
+
+            const lossType = document.getElementById('loss-select').value;
+            const regType = document.getElementById('regularizer-select').value;
+
+            // Calculate surface data based on selections
+            let combinedSurface = [];
+            for (let i = 0; i < gridSize; i++) {
+                let combinedRow = [];
+                for (let j = 0; j < gridSize; j++) {
+                    const z = zValues[j];
+                    const w = wValues[i];
+                    const loss = calculateLoss(z, lossType);
+                    const reg = regType === "none" ? 0 : calculateRegularizer(w, regType);
+                    combinedRow.push(loss + reg);
+                }
+                combinedSurface.push(combinedRow);
+            }
+
+            // Create geometry for the surface
+            const geometry = createSurfaceGeometry(zValues, wValues, combinedSurface);
+
+            // Apply gradient color based on z-value
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x88ccee,
+                side: THREE.DoubleSide,
+                wireframe: false
+            });
+
+            surfaceMesh = new THREE.Mesh(geometry, material);
+            scene.add(surfaceMesh);
+
+            renderer.render(scene, camera);
+        }
+
+        function calculateLoss(z, type) {
+            switch (type) {
+                case 'hinge':
+                    return Math.max(0, 1 - z);
+                case 'log':
+                    return Math.log(1 + Math.exp(-z));
+                case 'exp':
+                    return Math.exp(-z);
+                case 'zero_one':
+                    return z >= 0 ? 0 : 1;
+                default:
+                    return 0;
+            }
+        }
+
+        function calculateRegularizer(w, type) {
+            switch (type) {
+                case 'l1':
+                    return Math.abs(w);
+                case 'l2':
+                    return w * w;
+                case 'lp':
+                    return Math.pow(Math.abs(w), 0.5);
+                default:
+                    return 0;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // Update controls for rotation
+            renderer.render(scene, camera);
+        }
+
+        // Initialize scene and add event listeners
+        init3D();
+        updatePlot();
+        animate();
+        document.getElementById('loss-select').addEventListener('change', updatePlot);
+        document.getElementById('regularizer-select').addEventListener('change', updatePlot);
+    </script>
+
+</body>
+</html>
